@@ -131,28 +131,83 @@ def call_ai(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
     return call_ollama(cfg, images_png, prompt)
 
 
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+_gemini_model_cache: str | None = None  # first model name that worked
+
+
+def _discover_gemini_model(api_key: str, timeout: int) -> str:
+    """Ask the API which models this key can use and pick the best flash one.
+
+    Keeps the tool working when Google renames or retires model ids.
+    """
+    resp = requests.get(f"{_GEMINI_BASE}/models",
+                        headers={"x-goog-api-key": api_key},
+                        params={"pageSize": 1000}, timeout=timeout)
+    resp.raise_for_status()
+    names = [m["name"].split("/")[-1] for m in resp.json().get("models", [])
+             if "generateContent" in m.get("supportedGenerationMethods", [])]
+    blocked = ("embedding", "image", "tts", "live", "audio", "veo", "aqa", "thinking")
+    flashes = [n for n in names
+               if "flash" in n and not any(b in n for b in blocked)]
+    if not flashes:
+        raise RuntimeError(f"No usable Gemini model found; key sees: {names[:20]}")
+
+    def rank(name: str) -> tuple:
+        m = re.search(r"(\d+(?:\.\d+)?)", name)
+        version = float(m.group(1)) if m else 0.0
+        return (
+            "lite" not in name,               # full flash beats flash-lite
+            "preview" not in name and "exp" not in name,  # stable beats preview
+            version,                          # newest version
+            "latest" in name,                 # -latest alias as tiebreak
+        )
+    return max(flashes, key=rank)
+
+
 def call_gemini(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
     """Cloud backend: Google Gemini (free tier works). Needs GEMINI_API_KEY."""
+    global _gemini_model_cache
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    parts = [{"text": prompt}] + [
-        {"inline_data": {"mime_type": "image/png",
-                         "data": base64.b64encode(img).decode("ascii")}}
-        for img in images_png
-    ]
-    resp = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-        headers={"x-goog-api-key": api_key},
-        json={
-            "contents": [{"parts": parts}],
-            "generationConfig": {"temperature": 0,
-                                 "response_mime_type": "application/json"},
-        },
-        timeout=cfg["ollama"].get("timeout_seconds", 300),
-    )
-    resp.raise_for_status()
+    timeout = cfg["ollama"].get("timeout_seconds", 300)
+
+    candidates = [c for c in (
+        _gemini_model_cache,
+        os.environ.get("GEMINI_MODEL", "").strip() or None,
+        "gemini-flash-latest",
+        "gemini-2.5-flash",
+    ) if c]
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}] + [
+            {"inline_data": {"mime_type": "image/png",
+                             "data": base64.b64encode(img).decode("ascii")}}
+            for img in images_png
+        ]}],
+        "generationConfig": {"temperature": 0,
+                             "response_mime_type": "application/json"},
+    }
+
+    resp = None
+    for attempt, model in enumerate(dict.fromkeys(candidates)):
+        resp = requests.post(f"{_GEMINI_BASE}/models/{model}:generateContent",
+                             headers={"x-goog-api-key": api_key},
+                             json=payload, timeout=timeout)
+        if resp.status_code == 404:      # model id unknown -> try the next one
+            continue
+        resp.raise_for_status()
+        _gemini_model_cache = model
+        break
+    else:
+        # every known name 404'd -> ask the API what this key can actually use
+        model = _discover_gemini_model(api_key, timeout)
+        resp = requests.post(f"{_GEMINI_BASE}/models/{model}:generateContent",
+                             headers={"x-goog-api-key": api_key},
+                             json=payload, timeout=timeout)
+        resp.raise_for_status()
+        _gemini_model_cache = model
+
     data = resp.json()
     try:
         raw = data["candidates"][0]["content"]["parts"][0]["text"]
