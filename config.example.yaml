@@ -1,0 +1,61 @@
+# hr-doc-renamer configuration
+# Copy this file to config.yaml and edit to taste.
+
+ollama:
+  host: http://localhost:11434
+  model: qwen2.5vl:7b   # any Ollama vision model (qwen2.5vl recommended for OCR)
+  temperature: 0                  # keep at 0 for deterministic extraction
+  num_ctx: 8192                   # context window; images need more than the 4096 default
+  timeout_seconds: 300
+
+render:
+  dpi: 200            # higher = sharper OCR but slower / more memory
+  max_pages: 2        # pages sent to the model (first page is usually enough)
+
+naming:
+  # Available placeholders: {doc_type} {employee_id} {name} {year}
+  # {year} is only appended for document types with `year: true` below.
+  pattern: "{doc_type}_{employee_id}_{name}"
+  year_suffix: "_{year}"          # appended to `pattern` when a year applies
+  unknown_id_placeholder: "XXXX"  # used when the employee id is not on the document
+  # Which part of the person's name to put in the filename:
+  #   "family"  -> surname only  (e.g. Molla)     <- matches your existing files
+  #   "full"    -> full name with spaces removed  (e.g. MollaAbdulKarim)
+  name_part: family
+  # Optional: normalise inconsistent transliterations to one spelling.
+  # key = what the model might read, value = what to write.
+  name_overrides:
+    Mullah: Molla
+    Mulla: Molla
+
+# Canonical document types. `code` becomes the filename prefix.
+# `desc` and `aliases` help the model recognise each document.
+doc_types:
+  - code: AL
+    desc: "Annual Leave application / leave request form"
+    aliases: ["leave application", "annual leave", "leave form", "vacation request"]
+    year: true
+  - code: PP
+    desc: "Passport (photo/bio page)"
+    aliases: ["passport"]
+    year: false
+  - code: HC
+    desc: "Health Card / medical card"
+    aliases: ["health card", "medical card"]
+    year: false
+  - code: QID
+    desc: "Qatar ID / residence permit card"
+    aliases: ["qatar id", "qid", "residence permit", "id card"]
+    year: false
+  - code: Offer
+    desc: "Offer letter / employment offer"
+    aliases: ["offer letter", "job offer", "letter of offer"]
+    year: false
+  - code: Contr
+    desc: "Employment contract"
+    aliases: ["contract", "employment agreement", "labour contract"]
+    year: false
+
+# Files at or below this confidence (0-1) are left untouched and flagged
+# for manual review in the report instead of being renamed.
+min_confidence: 0.45

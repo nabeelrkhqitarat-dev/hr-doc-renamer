@@ -1,0 +1,16 @@
+# local config (may contain machine-specific paths / overrides)
+config.yaml
+
+# reports
+rename_report.csv
+*.report.csv
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# scans / private documents - never commit real HR files
+samples/*.pdf
+!samples/.gitkeep
