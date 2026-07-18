@@ -117,6 +117,56 @@ def build_prompt(cfg: dict, embedded_text: str) -> str:
     return "\n".join(lines)
 
 
+def call_ai(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
+    """Dispatch to the configured AI backend.
+
+    Provider is chosen by the AI_PROVIDER env var ("ollama" or "gemini").
+    If unset, Gemini is used when GEMINI_API_KEY is present, else local Ollama.
+    """
+    provider = (os.environ.get("AI_PROVIDER") or "").strip().lower()
+    if not provider:
+        provider = "gemini" if os.environ.get("GEMINI_API_KEY") else "ollama"
+    if provider == "gemini":
+        return call_gemini(cfg, images_png, prompt)
+    return call_ollama(cfg, images_png, prompt)
+
+
+def call_gemini(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
+    """Cloud backend: Google Gemini (free tier works). Needs GEMINI_API_KEY."""
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    parts = [{"text": prompt}] + [
+        {"inline_data": {"mime_type": "image/png",
+                         "data": base64.b64encode(img).decode("ascii")}}
+        for img in images_png
+    ]
+    resp = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        headers={"x-goog-api-key": api_key},
+        json={
+            "contents": [{"parts": parts}],
+            "generationConfig": {"temperature": 0,
+                                 "response_mime_type": "application/json"},
+        },
+        timeout=cfg["ollama"].get("timeout_seconds", 300),
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        raw = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as exc:
+        raise ValueError(f"Unexpected Gemini response: {str(data)[:200]}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if m:
+            return json.loads(m.group(0))
+        raise ValueError(f"Model did not return JSON: {raw[:200]}")
+
+
 def call_ollama(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
     o = cfg["ollama"]
     payload = {
@@ -291,7 +341,7 @@ def main() -> int:
             images, text = pdf_pages(path, cfg["render"]["dpi"], cfg["render"]["max_pages"])
             if not images:
                 raise ValueError("no pages rendered")
-            result = call_ollama(cfg, images, build_prompt(cfg, text))
+            result = call_ai(cfg, images, build_prompt(cfg, text))
         except Exception as exc:  # noqa: BLE001  - report per-file, keep going
             row["status"], row["notes"] = "error", str(exc)[:200]
             print(f"  ERROR  {orig}  ->  {row['notes']}")

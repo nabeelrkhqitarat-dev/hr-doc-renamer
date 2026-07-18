@@ -47,6 +47,30 @@ Originals are never modified — you always get a renamed copy, so a mistake is
 never destructive. Colleagues on the same office network can use it too, at
 `http://<your-pc-name>:8010`, while the processing stays on your machine.
 
+## Hosting it in the cloud ☁️
+
+The portal can also run on a free cloud host so users anywhere can reach it —
+no Ollama needed there: it switches to the **Google Gemini** API (free tier)
+for reading documents.
+
+Environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | Google AI Studio key — presence of this switches the AI backend to Gemini |
+| `GEMINI_MODEL` | optional, default `gemini-2.5-flash` |
+| `AI_PROVIDER` | optional override: `ollama` or `gemini` |
+| `PORTAL_PASSCODE` | if set, users must enter this access code before using the portal |
+| `PORT` | listen port (set automatically by Render/Spaces) |
+
+Deploy on **Render** (free): New → Web Service → connect this GitHub repo →
+runtime **Docker** → add the env vars above → deploy. A `Dockerfile` is included
+(also compatible with Hugging Face Spaces).
+
+> ⚠️ Privacy: in cloud mode, documents are uploaded to the host and sent to the
+> Gemini API for reading. Use the local/Ollama mode if your documents must not
+> leave your network. Uploaded files are deleted automatically after 2 hours.
+
 ## How it works
 
 For each PDF the tool:

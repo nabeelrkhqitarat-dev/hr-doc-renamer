@@ -80,6 +80,17 @@
     <div class="step" id="s3"><span class="n">3</span> Check &amp; download</div>
   </div>
 
+  <!-- ACCESS CODE GATE -->
+  <div class="card hidden" id="gate" style="max-width:420px;margin:0 auto;text-align:center">
+    <div style="font-size:2.4rem">🔒</div>
+    <h2 style="margin:8px 0 4px">Access code</h2>
+    <p style="color:var(--muted);margin:0 0 16px">Please enter the access code you were given.</p>
+    <input type="password" id="gateInput" style="width:100%;padding:12px;border:1px solid var(--line);
+           border-radius:10px;font-size:1.1rem;text-align:center" placeholder="Access code">
+    <p id="gateErr" style="color:var(--err);min-height:1.2em;font-size:.9rem"></p>
+    <button class="btn" id="gateBtn" style="width:100%">Enter</button>
+  </div>
+
   <!-- STEP 1 -->
   <div class="card" id="pick">
     <div id="drop">
@@ -90,7 +101,7 @@
     <input type="file" id="folderInput" webkitdirectory multiple class="hidden">
     <input type="file" id="filesInput" multiple accept=".pdf" class="hidden">
     <p class="hint">Only PDF files are used — everything else in the folder is ignored.<br>
-       Your documents are processed on this computer / office network only.
+       Documents are used only to work out the correct name and are deleted automatically.
        <a href="#" id="pickFiles">Choose individual files instead</a></p>
   </div>
 
@@ -131,6 +142,33 @@
 <script>
 const $ = id => document.getElementById(id);
 let jobId = null, pollTimer = null;
+
+/* ---------- access code ---------- */
+const getCode = () => sessionStorage.getItem('portalCode') || '';
+async function api(url, opts = {}){
+  opts.headers = {...(opts.headers || {}), 'X-Portal-Code': getCode()};
+  const r = await fetch(url, opts);
+  if (r.status === 401){ showGate(true); throw new Error('Access code required'); }
+  return r;
+}
+function showGate(wrong){
+  document.querySelectorAll('.card').forEach(c => c.classList.add('hidden'));
+  $('gate').classList.remove('hidden');
+  $('gateErr').textContent = wrong && getCode() ? 'That code is not correct — please try again.' : '';
+  $('gateInput').focus();
+}
+async function tryCode(){
+  sessionStorage.setItem('portalCode', $('gateInput').value.trim());
+  const r = await fetch('/api/ping', {headers:{'X-Portal-Code': getCode()}});
+  if (r.ok){ $('gate').classList.add('hidden'); setStep(1); }
+  else $('gateErr').textContent = 'That code is not correct — please try again.';
+}
+$('gateBtn').onclick = tryCode;
+$('gateInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryCode(); });
+(async () => {   // on load: check whether the server wants a code
+  const r = await fetch('/api/ping', {headers:{'X-Portal-Code': getCode()}});
+  if (!r.ok) showGate(false);
+})();
 
 function setStep(n){
   [1,2,3].forEach(i => $('s'+i).classList.toggle('active', i<=n));
@@ -178,7 +216,7 @@ async function startUpload(files){
   const fd = new FormData();
   pdfs.forEach(f => fd.append('files', f, f.name));
   try{
-    const r = await fetch('/api/upload', {method:'POST', body:fd});
+    const r = await api('/api/upload', {method:'POST', body:fd});
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Upload failed');
     jobId = j.job_id;
@@ -188,7 +226,9 @@ async function startUpload(files){
 
 /* ---------- step 2: progress ---------- */
 async function poll(){
-  const r = await fetch(`/api/job/${jobId}`);
+  let r;
+  try{ r = await api(`/api/job/${jobId}`); }
+  catch(e){ clearInterval(pollTimer); return; }
   if (!r.ok){ clearInterval(pollTimer); alert('Lost connection to the job.'); setStep(1); return; }
   const j = await r.json();
   $('barFill').style.width = (j.total ? (100*j.done/j.total) : 0) + '%';
@@ -231,12 +271,12 @@ $('downloadBtn').onclick = async () => {
   }));
   $('downloadBtn').disabled = true;
   try{
-    const r = await fetch(`/api/job/${jobId}/finalize`, {
+    const r = await api(`/api/job/${jobId}/finalize`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({items})});
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Could not prepare the download');
-    window.location = `/api/job/${jobId}/download`;
+    window.location = `/api/job/${jobId}/download?code=${encodeURIComponent(getCode())}`;
     setTimeout(() => { $('review').classList.add('hidden'); $('doneCard').classList.remove('hidden'); }, 800);
   }catch(err){ alert(err.message); }
   finally{ $('downloadBtn').disabled = false; }

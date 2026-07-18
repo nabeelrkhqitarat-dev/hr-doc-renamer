@@ -13,6 +13,7 @@ or double-click start_portal.bat on Windows.
 """
 from __future__ import annotations
 
+import hmac
 import os
 import re
 import shutil
@@ -24,7 +25,7 @@ import zipfile
 
 try:
     import uvicorn
-    from fastapi import FastAPI, File, UploadFile
+    from fastapi import FastAPI, File, Request, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
@@ -45,6 +46,21 @@ if os.path.isdir(os.path.join(HERE, "static")):
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
+
+# Optional shared access code (set the PORTAL_PASSCODE env var to enable).
+PASSCODE = os.environ.get("PORTAL_PASSCODE", "").strip()
+
+
+def _authorized(request: Request) -> bool:
+    if not PASSCODE:
+        return True
+    supplied = (request.headers.get("x-portal-code")
+                or request.query_params.get("code") or "")
+    return hmac.compare_digest(supplied, PASSCODE)
+
+
+def _deny() -> JSONResponse:
+    return JSONResponse({"error": "access code required"}, status_code=401)
 
 
 # --------------------------------------------------------------------------- #
@@ -79,7 +95,7 @@ def _process_job(job_id: str) -> None:
             images, text = rd.pdf_pages(path, CFG["render"]["dpi"], CFG["render"]["max_pages"])
             if not images:
                 raise ValueError("could not read any page from this PDF")
-            result = rd.call_ollama(CFG, images, rd.build_prompt(CFG, text))
+            result = rd.call_ai(CFG, images, rd.build_prompt(CFG, text))
             conf = float(result.get("confidence") or 0)
             base, note = rd.build_filename(result, CFG)
             entry["confidence"] = round(conf, 2)
@@ -106,8 +122,17 @@ def _process_job(job_id: str) -> None:
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
+@app.get("/api/ping")
+def ping(request: Request):
+    if not _authorized(request):
+        return _deny()
+    return {"ok": True, "protected": bool(PASSCODE)}
+
+
 @app.post("/api/upload")
-async def upload(files: list[UploadFile] = File(...)):
+async def upload(request: Request, files: list[UploadFile] = File(...)):
+    if not _authorized(request):
+        return _deny()
     _cleanup_old_jobs()
     job_id = uuid.uuid4().hex[:12]
     job_dir = os.path.join(JOBS_DIR, job_id)
@@ -139,7 +164,9 @@ async def upload(files: list[UploadFile] = File(...)):
 
 
 @app.get("/api/job/{job_id}")
-def job_status(job_id: str):
+def job_status(job_id: str, request: Request):
+    if not _authorized(request):
+        return _deny()
     job = JOBS.get(job_id)
     if not job:
         return JSONResponse({"error": "unknown job"}, status_code=404)
@@ -160,7 +187,9 @@ class FinalizeBody(BaseModel):
 
 
 @app.post("/api/job/{job_id}/finalize")
-def finalize(job_id: str, body: FinalizeBody):
+def finalize(job_id: str, body: FinalizeBody, request: Request):
+    if not _authorized(request):
+        return _deny()
     job = JOBS.get(job_id)
     if not job:
         return JSONResponse({"error": "unknown job"}, status_code=404)
@@ -193,7 +222,9 @@ def finalize(job_id: str, body: FinalizeBody):
 
 
 @app.get("/api/job/{job_id}/download")
-def download(job_id: str):
+def download(job_id: str, request: Request):
+    if not _authorized(request):
+        return _deny()
     job = JOBS.get(job_id)
     if not job or not job.get("zip") or not os.path.isfile(job["zip"]):
         return JSONResponse({"error": "nothing to download"}, status_code=404)
@@ -209,7 +240,9 @@ def index():
 
 def main() -> None:
     os.makedirs(JOBS_DIR, exist_ok=True)
-    threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
+    in_cloud = os.path.exists("/.dockerenv") or bool(os.environ.get("RENDER") or os.environ.get("SPACE_ID"))
+    if not in_cloud:
+        threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
     print(f"\n  hr-doc-renamer portal  ->  http://localhost:{PORT}\n"
           f"  (colleagues on your network can use http://<this-pc-name>:{PORT})\n")
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
