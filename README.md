@@ -28,6 +28,25 @@ scan_20260708115910.pdf   ->   Offer_5018_Molla.pdf
 Codes, descriptions, the filename pattern, and the year rule are all defined in
 [`config.example.yaml`](config.example.yaml) — edit them to fit your own scheme.
 
+## Easiest way: the web portal 🌐
+
+For non-technical users there is a simple browser portal — no command line needed:
+
+```bash
+python app.py            # or double-click start_portal.bat on Windows
+```
+
+Your browser opens `http://localhost:8010` with a 3-step wizard:
+
+1. **Choose folder** — drag & drop the folder of scans (or click to browse)
+2. **Reading documents** — a progress bar while the AI reads each scan
+3. **Check & download** — review the proposed names (every name is editable,
+   uncertain ones are highlighted), then download everything renamed as a ZIP
+
+Originals are never modified — you always get a renamed copy, so a mistake is
+never destructive. Colleagues on the same office network can use it too, at
+`http://<your-pc-name>:8010`, while the processing stays on your machine.
+
 ## How it works
 
 For each PDF the tool:

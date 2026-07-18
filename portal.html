@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Renamer</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1d2733; --muted:#68778a;
+    --brand:#175ddc; --brand-ink:#ffffff; --ok:#1a7f4b; --warn:#a86500;
+    --err:#b3261e; --line:#e3e8ef; --soft:#eef3fb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 16px 60px}
+  header{text-align:center;margin-bottom:26px}
+  header h1{margin:0;font-size:1.7rem}
+  header p{margin:6px 0 0;color:var(--muted)}
+  .steps{display:flex;justify-content:center;gap:8px;margin:18px 0 26px;flex-wrap:wrap}
+  .step{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;
+        background:var(--card);border:1px solid var(--line);color:var(--muted);font-size:.92rem}
+  .step .n{width:22px;height:22px;border-radius:50%;background:var(--line);color:var(--ink);
+           display:grid;place-items:center;font-weight:600;font-size:.8rem}
+  .step.active{border-color:var(--brand);color:var(--ink)}
+  .step.active .n{background:var(--brand);color:#fff}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+  /* step 1 */
+  #drop{border:2px dashed #b9c6d8;border-radius:14px;padding:48px 20px;text-align:center;
+        cursor:pointer;transition:.15s;background:var(--soft)}
+  #drop.hover{border-color:var(--brand);background:#e3edfd}
+  #drop .big{font-size:3rem;line-height:1}
+  #drop h2{margin:10px 0 4px;font-size:1.2rem}
+  #drop p{margin:0;color:var(--muted)}
+  .btn{display:inline-block;border:0;border-radius:10px;padding:12px 26px;font-size:1.05rem;
+       font-weight:600;cursor:pointer;background:var(--brand);color:var(--brand-ink)}
+  .btn.secondary{background:var(--soft);color:var(--brand)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .hint{color:var(--muted);font-size:.9rem;margin-top:14px;text-align:center}
+  /* step 2 */
+  .bar{height:14px;border-radius:999px;background:var(--line);overflow:hidden;margin:14px 0}
+  .bar i{display:block;height:100%;width:0;background:var(--brand);transition:width .4s}
+  #progText{text-align:center;color:var(--muted)}
+  /* table */
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:.95rem}
+  th{color:var(--muted);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  td input[type=text]{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;
+       font-size:.95rem;font-family:Consolas,monospace}
+  td input.flag{border-color:var(--warn);background:#fff8ec}
+  .old{color:var(--muted);font-family:Consolas,monospace;font-size:.88rem;word-break:break-all}
+  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.8rem;font-weight:600}
+  .chip.ok{background:#e2f4ea;color:var(--ok)} .chip.warn{background:#fdf1dc;color:var(--warn)}
+  .chip.err{background:#fbe4e2;color:var(--err)} .chip.named{background:var(--soft);color:var(--brand)}
+  .note{color:var(--muted);font-size:.82rem;margin-top:3px}
+  .actions{display:flex;gap:12px;justify-content:center;margin-top:22px;flex-wrap:wrap}
+  .banner{border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:.95rem}
+  .banner.warn{background:#fdf1dc;color:var(--warn)}
+  .banner.ok{background:#e2f4ea;color:var(--ok)}
+  .hidden{display:none}
+  #doneCard{text-align:center}
+  #doneCard .big{font-size:3rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📁 Document Renamer</h1>
+    <p>Give it a folder of scanned documents — get them back correctly named.</p>
+  </header>
+
+  <div class="steps">
+    <div class="step active" id="s1"><span class="n">1</span> Choose folder</div>
+    <div class="step" id="s2"><span class="n">2</span> Reading documents</div>
+    <div class="step" id="s3"><span class="n">3</span> Check &amp; download</div>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="card" id="pick">
+    <div id="drop">
+      <div class="big">📂</div>
+      <h2>Drop your folder here</h2>
+      <p>or click to choose the folder with your scanned PDF files</p>
+    </div>
+    <input type="file" id="folderInput" webkitdirectory multiple class="hidden">
+    <input type="file" id="filesInput" multiple accept=".pdf" class="hidden">
+    <p class="hint">Only PDF files are used — everything else in the folder is ignored.<br>
+       Your documents are processed on this computer / office network only.
+       <a href="#" id="pickFiles">Choose individual files instead</a></p>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="card hidden" id="progress">
+    <h2 style="margin-top:0;text-align:center">Reading your documents…</h2>
+    <div class="bar"><i id="barFill"></i></div>
+    <p id="progText">Uploading…</p>
+    <p class="hint">The computer is looking at each scan to see what it is and whose it is.<br>
+       This takes a little while per document — you can leave this page open.</p>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="card hidden" id="review">
+    <h2 style="margin-top:0">Check the new names</h2>
+    <div id="reviewBanner"></div>
+    <table>
+      <thead><tr><th style="width:34px"></th><th>Document</th><th>New name (you can edit)</th><th style="width:110px">Result</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="actions">
+      <button class="btn" id="downloadBtn">⬇️ Download renamed files</button>
+      <button class="btn secondary" id="againBtn">Start over</button>
+    </div>
+  </div>
+
+  <!-- DONE -->
+  <div class="card hidden" id="doneCard">
+    <div class="big">✅</div>
+    <h2>All done!</h2>
+    <p>Your renamed documents are in the ZIP file that just downloaded.<br>
+       Open it and copy the files wherever you need them.<br>
+       <span class="hint">Your original files were not changed.</span></p>
+    <div class="actions"><button class="btn" id="againBtn2">Rename another folder</button></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let jobId = null, pollTimer = null;
+
+function setStep(n){
+  [1,2,3].forEach(i => $('s'+i).classList.toggle('active', i<=n));
+  $('pick').classList.toggle('hidden', n!==1);
+  $('progress').classList.toggle('hidden', n!==2);
+  $('review').classList.toggle('hidden', n!==3);
+  $('doneCard').classList.add('hidden');
+}
+
+/* ---------- step 1: choose ---------- */
+const drop = $('drop');
+drop.onclick = () => $('folderInput').click();
+$('pickFiles').onclick = e => { e.preventDefault(); $('filesInput').click(); };
+$('folderInput').onchange = e => startUpload([...e.target.files]);
+$('filesInput').onchange  = e => startUpload([...e.target.files]);
+;['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.add('hover');}));
+;['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.remove('hover');}));
+drop.addEventListener('drop', async e => {
+  const items = [...e.dataTransfer.items];
+  const files = [];
+  const walk = entry => new Promise(res => {
+    if (entry.isFile) entry.file(f => { files.push(f); res(); });
+    else if (entry.isDirectory){
+      const r = entry.createReader();
+      const readAll = () => r.readEntries(async es => {
+        if (!es.length) return res();
+        for (const c of es) await walk(c);
+        readAll();
+      });
+      readAll();
+    } else res();
+  });
+  for (const it of items){
+    const entry = it.webkitGetAsEntry && it.webkitGetAsEntry();
+    if (entry) await walk(entry); else if (it.getAsFile()) files.push(it.getAsFile());
+  }
+  startUpload(files);
+});
+
+async function startUpload(files){
+  const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdfs.length){ alert('No PDF files found in that folder.'); return; }
+  setStep(2);
+  $('progText').textContent = `Uploading ${pdfs.length} document(s)…`;
+  const fd = new FormData();
+  pdfs.forEach(f => fd.append('files', f, f.name));
+  try{
+    const r = await fetch('/api/upload', {method:'POST', body:fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Upload failed');
+    jobId = j.job_id;
+    pollTimer = setInterval(poll, 1500);
+  }catch(err){ alert(err.message); setStep(1); }
+}
+
+/* ---------- step 2: progress ---------- */
+async function poll(){
+  const r = await fetch(`/api/job/${jobId}`);
+  if (!r.ok){ clearInterval(pollTimer); alert('Lost connection to the job.'); setStep(1); return; }
+  const j = await r.json();
+  $('barFill').style.width = (j.total ? (100*j.done/j.total) : 0) + '%';
+  const current = j.files.find(f => f.status === 'processing');
+  $('progText').textContent = j.done < j.total
+      ? `Reading document ${Math.min(j.done+1, j.total)} of ${j.total}` + (current ? ` — ${current.original}` : '')
+      : 'Finishing up…';
+  if (j.status === 'review'){ clearInterval(pollTimer); showReview(j.files); }
+}
+
+/* ---------- step 3: review ---------- */
+function chip(st){
+  if (st === 'ok')    return '<span class="chip ok">Renamed ✓</span>';
+  if (st === 'named') return '<span class="chip named">Already OK</span>';
+  if (st === 'error') return '<span class="chip err">Could not read</span>';
+  return '<span class="chip warn">Please check</span>';
+}
+function showReview(files){
+  setStep(3);
+  const needCheck = files.filter(f => f.status === 'review' || f.status === 'error').length;
+  $('reviewBanner').innerHTML = needCheck
+    ? `<div class="banner warn">⚠️ ${needCheck} document(s) need your attention — please check the highlighted names below.</div>`
+    : `<div class="banner ok">✓ All documents were recognised. Have a quick look, then download.</div>`;
+  $('rows').innerHTML = files.map((f,i) => `
+    <tr>
+      <td><input type="checkbox" id="inc${i}" ${f.status==='error' ? '' : 'checked'}></td>
+      <td><div class="old">${f.original}</div>${f.note ? `<div class="note">${f.note}</div>` : ''}</td>
+      <td><input type="text" id="name${i}" value="${(f.proposed||f.original).replace(/"/g,'&quot;')}"
+                 class="${f.status==='review'||f.status==='error' ? 'flag' : ''}"></td>
+      <td>${chip(f.status)}</td>
+    </tr>`).join('');
+  window._files = files;
+}
+
+$('downloadBtn').onclick = async () => {
+  const items = window._files.map((f,i) => ({
+    original: f.original,
+    final_name: $('name'+i).value.trim() || f.original,
+    include: $('inc'+i).checked,
+  }));
+  $('downloadBtn').disabled = true;
+  try{
+    const r = await fetch(`/api/job/${jobId}/finalize`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({items})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Could not prepare the download');
+    window.location = `/api/job/${jobId}/download`;
+    setTimeout(() => { $('review').classList.add('hidden'); $('doneCard').classList.remove('hidden'); }, 800);
+  }catch(err){ alert(err.message); }
+  finally{ $('downloadBtn').disabled = false; }
+};
+
+const restart = () => { jobId = null; window.location.reload(); };
+$('againBtn').onclick = restart;
+$('againBtn2').onclick = restart;
+</script>
+</body>
+</html>

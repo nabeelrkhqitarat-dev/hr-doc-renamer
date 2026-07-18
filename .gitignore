@@ -1,6 +1,9 @@
 # local config (may contain machine-specific paths / overrides)
 config.yaml
 
+# portal job uploads (contain private documents)
+.jobs/
+
 # reports
 rename_report.csv
 *.report.csv
