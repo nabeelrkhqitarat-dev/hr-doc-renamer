@@ -71,6 +71,30 @@ runtime **Docker** → add the env vars above → deploy. A `Dockerfile` is incl
 > Gemini API for reading. Use the local/Ollama mode if your documents must not
 > leave your network. Uploaded files are deleted automatically after 2 hours.
 
+### Best of both: cloud portal + your own AI ⚡
+
+Get the public URL *and* unlimited, rate-limit-free processing by pointing the
+cloud portal at a PC in your office that runs Ollama:
+
+1. On the cloud host, add one more env var: `WORKER_SECRET` (any long random
+   string).
+2. On the office PC (Ollama + a vision model installed), edit the two values
+   inside `start_worker.bat` — the portal URL and the same secret — and
+   double-click it.
+
+The worker connects **outward** to the portal (no open ports, no tunnels, works
+through firewalls), picks up queued documents, reads them with the local model,
+and returns the results. While it runs, the portal header shows *"⚡ Powered by
+the office AI"* and no cloud AI is used at all; stop it and the portal falls
+back to Gemini automatically. Bonus: the worker's polling keeps a free Render
+instance awake, so users don't hit cold starts.
+
+| | Gemini free tier | Local worker |
+|---|---|---|
+| Speed | ~8 docs/minute (rate-limited) | as fast as your PC |
+| Daily limit | ~250 docs | unlimited |
+| Documents read by | Google | your own machine |
+
 ## How it works
 
 For each PDF the tool:

@@ -13,8 +13,10 @@ or double-click start_portal.bat on Windows.
 """
 from __future__ import annotations
 
+import base64
 import hmac
 import os
+import queue
 import re
 import shutil
 import threading
@@ -64,6 +66,48 @@ def _deny() -> JSONResponse:
 
 
 # --------------------------------------------------------------------------- #
+# Local AI worker bridge
+# --------------------------------------------------------------------------- #
+# A machine running Ollama can register as a "worker": it long-polls
+# /api/worker/task, runs the vision model locally, and posts the result back.
+# The portal then prefers the worker (no rate limits) and falls back to the
+# cloud AI when no worker has polled recently. Enabled by setting the
+# WORKER_SECRET env var on the server and the same value on the worker.
+WORKER_SECRET = os.environ.get("WORKER_SECRET", "").strip()
+WORKER_TASK_TIMEOUT = int(os.environ.get("WORKER_TASK_TIMEOUT", "300"))
+WORKER_TASKS: dict[str, dict] = {}
+WORKER_QUEUE: "queue.Queue[str]" = queue.Queue()
+_worker_last_seen = 0.0
+
+
+def _worker_online() -> bool:
+    return bool(WORKER_SECRET) and (time.time() - _worker_last_seen) < 90
+
+
+def _worker_auth(request: Request) -> bool:
+    if not WORKER_SECRET:
+        return False
+    return hmac.compare_digest(request.headers.get("x-worker-secret", ""), WORKER_SECRET)
+
+
+def _run_ai(images: list[bytes], prompt: str) -> tuple[dict, str]:
+    """Run one extraction, preferring the local worker. Returns (result, engine)."""
+    if _worker_online():
+        task_id = uuid.uuid4().hex
+        done = threading.Event()
+        WORKER_TASKS[task_id] = {"prompt": prompt, "images": images,
+                                 "event": done, "result": None, "error": None}
+        WORKER_QUEUE.put(task_id)
+        if done.wait(timeout=WORKER_TASK_TIMEOUT):
+            task = WORKER_TASKS.pop(task_id)
+            if task["error"]:
+                raise RuntimeError(f"local AI worker: {task['error']}")
+            return task["result"], "local"
+        WORKER_TASKS.pop(task_id, None)  # worker vanished mid-task -> fall back
+    return rd.call_ai(CFG, images, prompt), "cloud"
+
+
+# --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
 def _cleanup_old_jobs() -> None:
@@ -95,7 +139,7 @@ def _process_job(job_id: str) -> None:
             images, text = rd.pdf_pages(path, CFG["render"]["dpi"], CFG["render"]["max_pages"])
             if not images:
                 raise ValueError("could not read any page from this PDF")
-            result = rd.call_ai(CFG, images, rd.build_prompt(CFG, text))
+            result, entry["engine"] = _run_ai(images, rd.build_prompt(CFG, text))
             conf = float(result.get("confidence") or 0)
             base, note, suggested = rd.build_filename(result, CFG)
             entry["confidence"] = round(conf, 2)
@@ -135,7 +179,55 @@ def _process_job(job_id: str) -> None:
 def ping(request: Request):
     if not _authorized(request):
         return _deny()
-    return {"ok": True, "protected": bool(PASSCODE)}
+    if _worker_online():
+        engine = "worker"
+    elif (os.environ.get("AI_PROVIDER") or "").lower() == "gemini" or (
+            not os.environ.get("AI_PROVIDER") and os.environ.get("GEMINI_API_KEY")):
+        engine = "gemini"
+    else:
+        engine = "ollama"
+    return {"ok": True, "protected": bool(PASSCODE),
+            "worker": _worker_online(), "engine": engine}
+
+
+@app.get("/api/worker/task")
+def worker_task(request: Request, wait: int = 20):
+    """Long-poll endpoint for the local AI worker. 204 = nothing to do."""
+    global _worker_last_seen
+    if not _worker_auth(request):
+        return JSONResponse({"error": "bad worker secret"}, status_code=403)
+    _worker_last_seen = time.time()
+    try:
+        task_id = WORKER_QUEUE.get(timeout=max(1, min(wait, 28)))
+    except queue.Empty:
+        return JSONResponse(None, status_code=204)
+    task = WORKER_TASKS.get(task_id)
+    if task is None:  # timed out and reclaimed before the worker got it
+        return JSONResponse(None, status_code=204)
+    _worker_last_seen = time.time()
+    return {"task_id": task_id, "prompt": task["prompt"],
+            "images": [base64.b64encode(i).decode("ascii") for i in task["images"]]}
+
+
+class WorkerResult(BaseModel):
+    task_id: str
+    result: dict | None = None
+    error: str | None = None
+
+
+@app.post("/api/worker/result")
+def worker_result(body: WorkerResult, request: Request):
+    global _worker_last_seen
+    if not _worker_auth(request):
+        return JSONResponse({"error": "bad worker secret"}, status_code=403)
+    _worker_last_seen = time.time()
+    task = WORKER_TASKS.get(body.task_id)
+    if task is None:  # too late - the server already fell back
+        return {"ok": False, "note": "task expired"}
+    task["result"] = body.result
+    task["error"] = body.error if body.result is None else None
+    task["event"].set()
+    return {"ok": True}
 
 
 @app.post("/api/upload")
@@ -158,6 +250,7 @@ async def upload(request: Request, files: list[UploadFile] = File(...)):
         entries.append({
             "original": original, "stored": stored, "proposed": "",
             "doc_type": "", "confidence": None, "status": "waiting", "note": "",
+            "engine": "",
         })
 
     if not entries:

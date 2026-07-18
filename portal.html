@@ -72,6 +72,7 @@
     <img src="/static/agrico-logo-alt.png" alt="Agrico Qatar">
     <h1>Document Renamer</h1>
     <p>Give it a folder of scanned documents — get them back correctly named.</p>
+    <p id="engineBadge" style="margin-top:8px;font-size:.82rem;color:var(--muted)"></p>
   </header>
 
   <div class="steps">
@@ -157,17 +158,24 @@ function showGate(wrong){
   $('gateErr').textContent = wrong && getCode() ? 'That code is not correct — please try again.' : '';
   $('gateInput').focus();
 }
+function showEngine(j){
+  $('engineBadge').innerHTML = {
+    worker: '⚡ Powered by the Agrico office AI',
+    ollama: '🖥️ Powered by local AI on this server',
+    gemini: '☁️ Powered by cloud AI',
+  }[j.engine] || '';
+}
 async function tryCode(){
   sessionStorage.setItem('portalCode', $('gateInput').value.trim());
   const r = await fetch('/api/ping', {headers:{'X-Portal-Code': getCode()}});
-  if (r.ok){ $('gate').classList.add('hidden'); setStep(1); }
+  if (r.ok){ showEngine(await r.json()); $('gate').classList.add('hidden'); setStep(1); }
   else $('gateErr').textContent = 'That code is not correct — please try again.';
 }
 $('gateBtn').onclick = tryCode;
 $('gateInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryCode(); });
 (async () => {   // on load: check whether the server wants a code
   const r = await fetch('/api/ping', {headers:{'X-Portal-Code': getCode()}});
-  if (!r.ok) showGate(false);
+  if (!r.ok) showGate(false); else showEngine(await r.json());
 })();
 
 function setStep(n){
