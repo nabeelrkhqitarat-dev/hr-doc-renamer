@@ -117,7 +117,12 @@ def _process_job(job_id: str) -> None:
         except Exception as exc:  # noqa: BLE001 - report per file, keep going
             entry["status"] = "error"
             entry["proposed"] = entry["original"]
-            entry["note"] = str(exc)[:200]
+            msg = str(exc)
+            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                entry["note"] = ("The AI service is busy (free quota limit). "
+                                 "This file was left unchanged - try it again in a few minutes.")
+            else:
+                entry["note"] = msg[:200]
         finally:
             job["done"] += 1
     job["status"] = "review"

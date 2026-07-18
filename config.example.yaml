@@ -26,6 +26,10 @@ naming:
   # short code in the same style (e.g. Cert_XXXX_Nabeel_2026.pdf) instead of
   # returning "unrecognised". Suggestions are always flagged for review.
   auto_suggest: true
+  # Skip files that already look like the convention (Code_1234_Name...),
+  # even when the code is not in doc_types below - saves AI quota and avoids
+  # re-suggesting names for files that were named by hand.
+  skip_named_pattern: true
   # Optional: normalise inconsistent transliterations to one spelling.
   # key = what the model might read, value = what to write.
   name_overrides:
@@ -58,6 +62,34 @@ doc_types:
   - code: Contr
     desc: "Employment contract"
     aliases: ["contract", "employment agreement", "labour contract"]
+    year: false
+  - code: EL
+    desc: "Emergency Leave application / emergency leave request form"
+    aliases: ["emergency leave", "urgent leave", "EL form"]
+    year: true
+  - code: Join
+    desc: "Joining report / duty joining form for a new or returning employee"
+    aliases: ["joining report", "duty joining", "joining form"]
+    year: false
+  - code: Rejoin
+    desc: "Rejoining report - employee resuming duty after leave"
+    aliases: ["rejoining", "resumption of duty", "return from leave"]
+    year: true
+  - code: Ament
+    desc: "Amendment - change to contract, salary, designation or visa details"
+    aliases: ["amendment", "contract amendment", "salary amendment"]
+    year: false
+  - code: Encash
+    desc: "Leave encashment request - payment instead of taking leave days"
+    aliases: ["leave encashment", "encashment", "leave salary payment"]
+    year: false
+  - code: Leave Settlement
+    desc: "Leave settlement - final calculation and payment for a leave period"
+    aliases: ["leave settlement", "settlement of leave"]
+    year: false
+  - code: AL Settlement
+    desc: "Annual leave settlement - settlement specifically for annual leave"
+    aliases: ["annual leave settlement"]
     year: false
 
 # Files at or below this confidence (0-1) are left untouched and flagged

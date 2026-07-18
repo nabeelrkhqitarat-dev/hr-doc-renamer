@@ -34,6 +34,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 from datetime import datetime
 
 try:
@@ -142,6 +144,49 @@ def call_ai(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
 
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _gemini_model_cache: str | None = None  # first model name that worked
+_gemini_lock = threading.Lock()
+_gemini_last_call = 0.0
+
+
+def _gemini_throttle() -> None:
+    """Space out requests to stay under the free-tier requests-per-minute cap."""
+    global _gemini_last_call
+    rpm = float(os.environ.get("GEMINI_RPM", "8"))  # free tier allows ~10/min
+    min_interval = 60.0 / max(rpm, 0.1)
+    with _gemini_lock:
+        wait = _gemini_last_call + min_interval - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        _gemini_last_call = time.time()
+
+
+def _gemini_retry_delay(resp, attempt: int) -> float:
+    """How long to wait before retrying a 429/503, honouring the API's hint."""
+    try:
+        for detail in resp.json()["error"]["details"]:
+            if detail.get("@type", "").endswith("RetryInfo"):
+                return float(detail["retryDelay"].rstrip("s")) + 1.0
+    except Exception:  # noqa: BLE001 - hint is optional
+        pass
+    retry_after = resp.headers.get("Retry-After")
+    if retry_after and retry_after.isdigit():
+        return float(retry_after) + 1.0
+    return 15.0 * (attempt + 1)
+
+
+def _gemini_post(api_key: str, model: str, payload: dict, timeout: int):
+    """POST to generateContent with throttling and 429/503 retries."""
+    resp = None
+    for attempt in range(4):
+        _gemini_throttle()
+        resp = requests.post(f"{_GEMINI_BASE}/models/{model}:generateContent",
+                             headers={"x-goog-api-key": api_key},
+                             json=payload, timeout=timeout)
+        if resp.status_code in (429, 503):
+            time.sleep(_gemini_retry_delay(resp, attempt))
+            continue
+        break
+    return resp
 
 
 def _discover_gemini_model(api_key: str, timeout: int) -> str:
@@ -199,10 +244,8 @@ def call_gemini(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
     }
 
     resp = None
-    for attempt, model in enumerate(dict.fromkeys(candidates)):
-        resp = requests.post(f"{_GEMINI_BASE}/models/{model}:generateContent",
-                             headers={"x-goog-api-key": api_key},
-                             json=payload, timeout=timeout)
+    for model in dict.fromkeys(candidates):
+        resp = _gemini_post(api_key, model, payload, timeout)
         if resp.status_code == 404:      # model id unknown -> try the next one
             continue
         resp.raise_for_status()
@@ -211,9 +254,7 @@ def call_gemini(cfg: dict, images_png: list[bytes], prompt: str) -> dict:
     else:
         # every known name 404'd -> ask the API what this key can actually use
         model = _discover_gemini_model(api_key, timeout)
-        resp = requests.post(f"{_GEMINI_BASE}/models/{model}:generateContent",
-                             headers={"x-goog-api-key": api_key},
-                             json=payload, timeout=timeout)
+        resp = _gemini_post(api_key, model, payload, timeout)
         resp.raise_for_status()
         _gemini_model_cache = model
 
@@ -365,10 +406,19 @@ def find_pdfs(folder: str, recursive: bool) -> list[str]:
 
 
 def already_named(fname: str, cfg: dict) -> bool:
-    """Skip files that already look like our convention (start with a known code)."""
+    """Skip files that already look like our convention."""
     stem = os.path.splitext(fname)[0]
     for dt in cfg["doc_types"]:
         if stem.lower().startswith(dt["code"].lower() + "_"):
+            return True
+    # Generic shape: starts with a short alphabetic code and contains an
+    # employee-number-like token, e.g. "Encash_4017_Abdul", "EL_Raouf_4003_2025".
+    # Catches convention-following files whose code is not (yet) configured.
+    if cfg.get("naming", {}).get("skip_named_pattern", True):
+        tokens = stem.split("_")
+        if (len(tokens) >= 3
+                and re.fullmatch(r"[A-Za-z][A-Za-z ]{0,19}", tokens[0])
+                and any(re.fullmatch(r"\d{3,6}", t) for t in tokens[1:])):
             return True
     return False
 
