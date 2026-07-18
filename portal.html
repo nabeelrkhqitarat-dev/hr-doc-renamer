@@ -3,18 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Document Renamer</title>
+<title>Agrico — Document Renamer</title>
+<link rel="icon" type="image/png" href="/static/agrico-logo.png">
 <style>
   :root{
-    --bg:#f4f6f9; --card:#ffffff; --ink:#1d2733; --muted:#68778a;
-    --brand:#175ddc; --brand-ink:#ffffff; --ok:#1a7f4b; --warn:#a86500;
-    --err:#b3261e; --line:#e3e8ef; --soft:#eef3fb;
+    --bg:#f4f7f4; --card:#ffffff; --ink:#1c2a1e; --muted:#5f7263;
+    --brand:#1c4a26; --brand-ink:#ffffff; --gold:#c8a02c;
+    --ok:#1a7f4b; --warn:#a86500;
+    --err:#b3261e; --line:#dfe8df; --soft:#ecf3ec;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
   .wrap{max-width:880px;margin:0 auto;padding:28px 16px 60px}
   header{text-align:center;margin-bottom:26px}
+  header img{height:96px;margin-bottom:10px}
   header h1{margin:0;font-size:1.7rem}
+  header h1 .gold{color:var(--gold)}
   header p{margin:6px 0 0;color:var(--muted)}
   .steps{display:flex;justify-content:center;gap:8px;margin:18px 0 26px;flex-wrap:wrap}
   .step{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;
@@ -25,9 +29,9 @@
   .step.active .n{background:var(--brand);color:#fff}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
   /* step 1 */
-  #drop{border:2px dashed #b9c6d8;border-radius:14px;padding:48px 20px;text-align:center;
+  #drop{border:2px dashed #a9c3ad;border-radius:14px;padding:48px 20px;text-align:center;
         cursor:pointer;transition:.15s;background:var(--soft)}
-  #drop.hover{border-color:var(--brand);background:#e3edfd}
+  #drop.hover{border-color:var(--brand);background:#ddecdf}
   #drop .big{font-size:3rem;line-height:1}
   #drop h2{margin:10px 0 4px;font-size:1.2rem}
   #drop p{margin:0;color:var(--muted)}
@@ -36,6 +40,7 @@
   .btn.secondary{background:var(--soft);color:var(--brand)}
   .btn:disabled{opacity:.5;cursor:default}
   .hint{color:var(--muted);font-size:.9rem;margin-top:14px;text-align:center}
+  a{color:var(--brand)}
   /* step 2 */
   .bar{height:14px;border-radius:999px;background:var(--line);overflow:hidden;margin:14px 0}
   .bar i{display:block;height:100%;width:0;background:var(--brand);transition:width .4s}
@@ -64,7 +69,8 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>📁 Document Renamer</h1>
+    <img src="/static/agrico-logo-alt.png" alt="Agrico Qatar">
+    <h1>Document Renamer</h1>
     <p>Give it a folder of scanned documents — get them back correctly named.</p>
   </header>
 

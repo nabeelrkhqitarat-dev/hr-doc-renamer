@@ -26,6 +26,7 @@ try:
     import uvicorn
     from fastapi import FastAPI, File, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
 except ImportError:
     raise SystemExit("Missing web dependencies. Run:  python -m pip install -r requirements.txt")
@@ -39,6 +40,8 @@ PORT = int(os.environ.get("PORT", "8010"))
 
 CFG = rd.load_config(None)
 app = FastAPI(title="hr-doc-renamer portal")
+if os.path.isdir(os.path.join(HERE, "static")):
+    app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
