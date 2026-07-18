@@ -95,8 +95,17 @@ def build_prompt(cfg: dict, embedded_text: str) -> str:
     for dt in cfg["doc_types"]:
         aliases = ", ".join(dt.get("aliases", []))
         lines.append(f'  - "{dt["code"]}" = {dt["desc"]}' + (f" (e.g. {aliases})" if aliases else ""))
+    if cfg.get("naming", {}).get("auto_suggest", True):
+        lines += [
+            "  - If it matches NONE of the above, invent a short code in the same",
+            '    style: 3-10 letters, capitalised, describing the document type',
+            '    (e.g. "Cert" for a training certificate, "Exp" for an expense',
+            '    claim, "Memo", "Inv" for an invoice, "CV" for a resume).',
+            '  - "UNKNOWN" only if the image is unreadable or you truly cannot tell.',
+        ]
+    else:
+        lines.append('  - "UNKNOWN" if it matches none of the above or you are unsure.')
     lines += [
-        '  - "UNKNOWN" if it matches none of the above or you are unsure.',
         "",
         "Then extract, when visible on the document:",
         "  - family_name: the person's surname / last name (single word).",
@@ -288,16 +297,26 @@ def canonical_code(code: str, cfg: dict) -> str | None:
     return None
 
 
-def build_filename(result: dict, cfg: dict) -> tuple[str | None, str]:
-    """Return (filename_without_ext or None, note)."""
+def build_filename(result: dict, cfg: dict) -> tuple[str | None, str, bool]:
+    """Return (filename_without_ext or None, note, suggested).
+
+    `suggested` is True when the type code was invented by the model rather
+    than matched against the configured doc_types - callers should flag the
+    name for human review.
+    """
     naming = cfg["naming"]
+    suggested = False
     code = canonical_code(result.get("doc_type", ""), cfg)
     if code is None:
-        return None, f"unrecognised doc_type '{result.get('doc_type')}'"
+        raw = re.sub(r"[^A-Za-z0-9]", "", str(result.get("doc_type") or ""))[:12]
+        if (not naming.get("auto_suggest", True)) or not raw or raw.upper() == "UNKNOWN":
+            return None, f"unrecognised doc_type '{result.get('doc_type')}'", False
+        code = raw[0].upper() + raw[1:]
+        suggested = True
 
     name = pick_name(result, cfg)
     if not name:
-        return None, "no name detected"
+        return None, "no name detected", suggested
 
     emp_id = sanitize(str(result.get("employee_id") or "")).replace(" ", "")
     note = ""
@@ -306,13 +325,18 @@ def build_filename(result: dict, cfg: dict) -> tuple[str | None, str]:
         note = "employee id not on document -> placeholder"
 
     base = naming["pattern"].format(doc_type=code, employee_id=emp_id, name=name, year="")
+    year = re.sub(r"\D", "", str(result.get("year") or ""))[:4]
     if type_needs_year(code, cfg):
-        year = re.sub(r"\D", "", str(result.get("year") or ""))[:4]
         if len(year) == 4:
             base += naming.get("year_suffix", "_{year}").format(year=year)
         else:
             note = (note + "; " if note else "") + "year required but not detected"
-    return base, note
+    elif suggested and len(year) == 4:
+        # invented types keep the year when the document clearly has one
+        base += naming.get("year_suffix", "_{year}").format(year=year)
+    if suggested:
+        note = (note + "; " if note else "") + f"suggested type '{code}' - not in the standard list"
+    return base, note, suggested
 
 
 def resolve_collision(folder: str, base: str, ext: str, taken: set[str]) -> str:
@@ -410,10 +434,17 @@ def main() -> int:
                    year=result.get("year", ""),
                    confidence=f"{conf:.2f}")
 
-        base, note = build_filename(result, cfg)
+        base, note, suggested = build_filename(result, cfg)
         if base is None:
             row["status"], row["notes"] = "review", note
             print(f"  review {orig}  ->  {note}")
+            rows.append(row)
+            continue
+        if suggested:
+            # invented type codes are proposals only - never auto-rename them
+            row["status"], row["notes"] = "review", note
+            row["proposed"] = base + ".pdf"
+            print(f"  review {orig}  ->  {base}.pdf  ({note})")
             rows.append(row)
             continue
         if conf < min_conf:

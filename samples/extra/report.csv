@@ -1,0 +1,2 @@
+original,proposed,doc_type,name,employee_id,year,confidence,status,notes
+Coursera-Nabeel.pdf,Cert_XXXX_Rahman.pdf,Cert,Rahman,,,1.00,review,employee id not on document -> placeholder; suggested type 'Cert' - not in the standard list

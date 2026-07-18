@@ -97,12 +97,16 @@ def _process_job(job_id: str) -> None:
                 raise ValueError("could not read any page from this PDF")
             result = rd.call_ai(CFG, images, rd.build_prompt(CFG, text))
             conf = float(result.get("confidence") or 0)
-            base, note = rd.build_filename(result, CFG)
+            base, note, suggested = rd.build_filename(result, CFG)
             entry["confidence"] = round(conf, 2)
             entry["doc_type"] = rd.canonical_code(result.get("doc_type", ""), CFG) or result.get("doc_type", "")
             if base is None:
                 entry["status"] = "review"
                 entry["proposed"] = entry["original"]
+                entry["note"] = note
+            elif suggested:
+                entry["status"] = "suggest"
+                entry["proposed"] = base + ".pdf"
                 entry["note"] = note
             else:
                 entry["proposed"] = base + ".pdf"

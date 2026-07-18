@@ -22,6 +22,10 @@ naming:
   #   "family"  -> surname only  (e.g. Molla)     <- matches your existing files
   #   "full"    -> full name with spaces removed  (e.g. MollaAbdulKarim)
   name_part: family
+  # When a document matches none of the doc_types below, let the AI invent a
+  # short code in the same style (e.g. Cert_XXXX_Nabeel_2026.pdf) instead of
+  # returning "unrecognised". Suggestions are always flagged for review.
+  auto_suggest: true
   # Optional: normalise inconsistent transliterations to one spelling.
   # key = what the model might read, value = what to write.
   name_overrides:

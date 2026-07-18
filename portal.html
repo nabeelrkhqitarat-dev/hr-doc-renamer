@@ -241,14 +241,15 @@ async function poll(){
 
 /* ---------- step 3: review ---------- */
 function chip(st){
-  if (st === 'ok')    return '<span class="chip ok">Renamed ✓</span>';
-  if (st === 'named') return '<span class="chip named">Already OK</span>';
-  if (st === 'error') return '<span class="chip err">Could not read</span>';
+  if (st === 'ok')      return '<span class="chip ok">Renamed ✓</span>';
+  if (st === 'named')   return '<span class="chip named">Already OK</span>';
+  if (st === 'error')   return '<span class="chip err">Could not read</span>';
+  if (st === 'suggest') return '<span class="chip warn">💡 Suggested</span>';
   return '<span class="chip warn">Please check</span>';
 }
 function showReview(files){
   setStep(3);
-  const needCheck = files.filter(f => f.status === 'review' || f.status === 'error').length;
+  const needCheck = files.filter(f => ['review','error','suggest'].includes(f.status)).length;
   $('reviewBanner').innerHTML = needCheck
     ? `<div class="banner warn">⚠️ ${needCheck} document(s) need your attention — please check the highlighted names below.</div>`
     : `<div class="banner ok">✓ All documents were recognised. Have a quick look, then download.</div>`;
@@ -257,7 +258,7 @@ function showReview(files){
       <td><input type="checkbox" id="inc${i}" ${f.status==='error' ? '' : 'checked'}></td>
       <td><div class="old">${f.original}</div>${f.note ? `<div class="note">${f.note}</div>` : ''}</td>
       <td><input type="text" id="name${i}" value="${(f.proposed||f.original).replace(/"/g,'&quot;')}"
-                 class="${f.status==='review'||f.status==='error' ? 'flag' : ''}"></td>
+                 class="${['review','error','suggest'].includes(f.status) ? 'flag' : ''}"></td>
       <td>${chip(f.status)}</td>
     </tr>`).join('');
   window._files = files;
